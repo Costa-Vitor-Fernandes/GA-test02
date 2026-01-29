@@ -1,7 +1,7 @@
-const conventionalRecommendedBump = require('conventional-recommended-bump');
-const semver = require('semver');
-const { execSync } = require('child_process');
-const fs = require('fs');
+import conventionalRecommendedBump from 'conventional-recommended-bump';
+import { valid, inc } from 'semver';
+import { execSync } from 'child_process';
+import { appendFileSync } from 'fs';
 
 async function calculateVersion() {
   try {
@@ -9,7 +9,7 @@ async function calculateVersion() {
     try {
       const latestTag = execSync('git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0"')
         .toString().trim().replace(/^v/, '');
-      currentVersion = semver.valid(latestTag) || '0.0.0';
+      currentVersion = valid(latestTag) || '0.0.0';
     } catch (e) {
       console.log('No tags found, defaulting to 0.0.0');
     }
@@ -20,7 +20,7 @@ async function calculateVersion() {
     });
 
     const releaseType = result.releaseType;
-    const newVersion = semver.inc(currentVersion, releaseType);
+    const newVersion = inc(currentVersion, releaseType);
     
     // Check for breaking changes in the diff
     const baseRef = process.env.BASE_REF || 'main';
@@ -29,7 +29,7 @@ async function calculateVersion() {
 
     // Output to GitHub Actions
     const output = `current=${currentVersion}\nnext=${newVersion}\nrelease_type=${releaseType}\nbreaking=${hasBreakingChange}\n`;
-    fs.appendFileSync(process.env.GITHUB_OUTPUT, output);
+    appendFileSync(process.env.GITHUB_OUTPUT, output);
 
     console.log(`Summary: ${currentVersion} -> ${newVersion} (${releaseType})`);
   } catch (error) {
