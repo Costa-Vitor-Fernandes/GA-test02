@@ -2,7 +2,7 @@ name: "SemVer Check & Preview"
 
 on:
   pull_request:
-    types: [opened, edited, synchronize]
+    types: [opened, edited, synchronized]
 
 permissions:
   contents: read
@@ -17,62 +17,60 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Obrigatório para analisar o histórico de commits
+          fetch-depth: 0 # Obrigatório para analisar o histórico
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # Instalamos as dependências necessárias no ambiente do runner
+      # Instala dependências na pasta atual para o script poder usar
       - name: Install Analysis Tools
         run: |
           npm install --no-save @commitlint/config-conventional @commitlint/cli conventional-recommended-bump semver
 
-      # CORREÇÃO: Usamos o pipe (|) para evitar erro de sintaxe com aspas/chaves
       - name: Create Commitlint Config
         run: |
           echo "module.exports = {extends: ['@commitlint/config-conventional']}" > commitlint.config.js
 
-      # Passo 1: Validação (Linta os commits do PR)
+      # Passo 1: Validação
       - name: Validate Commits (Commitlint)
         run: |
           npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
 
-      # Passo 2: Previsão da Versão (Script Inline)
-      # Aqui usamos actions/github-script com o código embutido para evitar o erro "Cannot find module"
+      # Passo 2: Previsão (Corrigido o erro do 'exec')
       - name: Calculate Next Version
         id: prediction
         uses: actions/github-script@v7
         with:
           script: |
-            // Importa módulos instalados no passo anterior
-            // Usamos process.cwd() para garantir que o require ache a pasta node_modules local
+            // Importações usando caminho absoluto para garantir que ache os módulos instalados
             const startPath = process.cwd();
             const semver = require(startPath + '/node_modules/semver');
             const recommendedBump = require(startPath + '/node_modules/conventional-recommended-bump');
             const { promisify } = require('util');
-            const exec = promisify(require('child_process').exec);
-            const bump = promisify(recommendedBump);
+            
+            // CORREÇÃO AQUI: Mudamos o nome de 'exec' para 'execPromise' para evitar colisão
+            const execPromise = promisify(require('child_process').exec);
+            const bumpPromise = promisify(recommendedBump);
 
             // 1. Descobre a versão atual (tag)
             let currentVersion = '0.0.0';
             try {
-              // Pega a última tag disponível
-              const { stdout } = await exec('git describe --tags --abbrev=0');
+              const { stdout } = await execPromise('git describe --tags --abbrev=0');
               currentVersion = stdout.trim();
               if (currentVersion.startsWith('v')) currentVersion = currentVersion.slice(1);
             } catch (error) {
               console.log('Nenhuma tag encontrada, assumindo v0.0.0 como base.');
             }
 
-            // 2. Analisa os commits para sugerir o bump (Major, Minor ou Patch)
+            // 2. Analisa os commits
             let releaseType = 'patch';
             try {
-              const recommendation = await bump({ preset: 'angular' });
+              const recommendation = await bumpPromise({ preset: 'angular' });
               releaseType = recommendation.releaseType;
             } catch (err) {
-              console.log('Erro ao calcular bump, assumindo patch como fallback.');
+              console.log('Erro ao calcular bump, fallback para patch.');
             }
 
             // 3. Calcula a próxima versão
@@ -82,12 +80,11 @@ jobs:
             console.log(`Tipo de Bump: ${releaseType}`);
             console.log(`Próxima Versão: ${nextVersion}`);
 
-            // Exporta output para ser usado no passo de comentário
             core.setOutput('current_version', currentVersion);
             core.setOutput('next_version', nextVersion);
             core.setOutput('bump_type', releaseType);
 
-      # Passo 3: Comentário no PR
+      # Passo 3: Comentário
       - name: Comment Prediction
         uses: peter-evans/create-or-update-comment@v4
         with:
@@ -101,5 +98,5 @@ jobs:
             | :---: | :---: | :---: |
             | `v${{ steps.prediction.outputs.current_version }}` | **${{ steps.prediction.outputs.bump_type }}** | `v${{ steps.prediction.outputs.next_version }}` |
             
-            > **Nota:** Se o impacto estiver errado, verifique se usou `fix:`, `feat:` ou `BREAKING CHANGE` corretamente nos commits.
+            > **Nota:** A versão final será gerada apenas após o merge.
           edit-mode: replace
