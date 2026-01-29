@@ -1,57 +1,340 @@
-name: "SemVer prediction on PR comments"
+name: Conventional Commits Validation
 
 on:
   pull_request:
     types: [opened, edited, synchronize]
 
-jobs:
-  validate-and-predict:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write # Necessário para comentar no PR
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
 
+jobs:
+  validate-commits:
+    name: Validate Conventional Commits
+    runs-on: ubuntu-latest
+    
     steps:
-      - name: Checkout Code
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Importante para ler as tags e o histórico de commits
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '20'
 
-      # Passo 1: Validação (Falha se estiver fora do padrão)
-      # Usamos o 'commitlint' para validar o Título do PR.
-      - name: Validate PR Title
-        env:
-          TITLE: ${{ github.event.pull_request.title }}
+      - name: Install dependencies
         run: |
-          npm install @commitlint/config-conventional @commitlint/cli
-          echo "module.exports = { extends: ['@commitlint/config-conventional'] };" > commitlint.config.js
-          echo "$TITLE" | npx commitlint
-        
-      # Passo 2: Previsão da Próxima Versão
-      # Instala dependências leves para calcular o bump de versão
-      - name: Predict Next Version
-        id: predict
-        run: |
-          npm install conventional-recommended-bump semver
-          node .github/scripts/predict-version.js
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          npm install --save-dev \
+            @commitlint/cli@18.4.3 \
+            @commitlint/config-conventional@18.4.3 \
+            conventional-changelog-conventionalcommits@7.0.2 \
+            conventional-recommended-bump@9.0.0 \
+            semver@7.5.4
 
-      # Passo 3: Comentário no PR (Cria ou Atualiza)
+      - name: Create commitlint config
+        run: |
+          cat > commitlint.config.js << 'EOF'
+          module.exports = {
+            extends: ['@commitlint/config-conventional'],
+            rules: {
+              'type-enum': [
+                2,
+                'always',
+                [
+                  'feat',     // Nova funcionalidade
+                  'fix',      // Correção de bug
+                  'docs',     // Apenas documentação
+                  'style',    // Formatação, sem mudança de código
+                  'refactor', // Refatoração sem mudança de funcionalidade
+                  'perf',     // Melhoria de performance
+                  'test',     // Adição/correção de testes
+                  'chore',    // Tarefas de build, configs, etc
+                  'ci',       // Mudanças em CI/CD
+                  'build',    // Mudanças no sistema de build
+                  'revert'    // Reversão de commit
+                ]
+              ],
+              'subject-case': [0]
+            }
+          };
+          EOF
+
+      - name: Validate PR title
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          echo "Validando título do PR: $PR_TITLE"
+          echo ""
+          
+          if ! echo "$PR_TITLE" | npx commitlint --verbose; then
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "❌ Título do PR está fora do padrão!"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "Título atual:"
+            echo "  $PR_TITLE"
+            echo ""
+            echo "⚠️  ATENÇÃO: Precisa ter ESPAÇO após os dois pontos!"
+            echo ""
+            echo "❌ Errado:"
+            echo "  feat:add new feature"
+            echo "  fix:resolve bug"
+            echo "  feat!:breaking change"
+            echo ""
+            echo "✅ Correto:"
+            echo "  feat: add new feature"
+            echo "  fix: resolve bug"
+            echo "  feat!: breaking change"
+            echo ""
+            echo "Formato: <type>[scope]!: <description>"
+            echo "         ^           ^ ^"
+            echo "         |           | |"
+            echo "         |           | └─ ESPAÇO obrigatório"
+            echo "         |           └─── Dois pontos"
+            echo "         └─────────────── Tipo (feat, fix, etc)"
+            echo ""
+            exit 1
+          fi
+
+      - name: Validate commit messages
+        run: |
+          # Pega todos os commits do PR
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          COMMITS=$(git log --format=%H origin/${{ github.event.pull_request.base.ref }}..HEAD)
+          
+          echo "Validando commits do PR..."
+          echo ""
+          
+          HAS_ERROR=0
+          for commit in $COMMITS; do
+            COMMIT_MSG=$(git log -1 --format=%B $commit)
+            COMMIT_SHORT=$(git log -1 --format=%h $commit)
+            
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "Validando commit $COMMIT_SHORT:"
+            echo "$COMMIT_MSG" | head -1
+            echo ""
+            
+            if ! echo "$COMMIT_MSG" | npx commitlint --verbose; then
+              echo ""
+              echo "❌ Commit $COMMIT_SHORT está INVÁLIDO!"
+              echo ""
+              echo "⚠️  ATENÇÃO: Precisa ter ESPAÇO após os dois pontos!"
+              echo ""
+              echo "❌ Errado: feat:add feature"
+              echo "✅ Correto: feat: add feature"
+              echo ""
+              HAS_ERROR=1
+            else
+              echo "✅ Commit válido!"
+            fi
+            echo ""
+          done
+          
+          if [ $HAS_ERROR -eq 1 ]; then
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "❌ Um ou mais commits estão fora do padrão!"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "Corrija os commits com:"
+            echo "  git rebase -i HEAD~N  # onde N é o número de commits"
+            echo "  # Marque com 'r' (reword) os commits a corrigir"
+            echo "  git push --force-with-lease"
+            echo ""
+            exit 1
+          fi
+          
+          echo "✅ Todos os commits estão válidos!"
+
+      - name: Calculate next version
+        id: version
+        run: |
+          cat > calculate-version.js << 'EOF'
+          const conventionalRecommendedBump = require('conventional-recommended-bump');
+          const semver = require('semver');
+          const { execSync } = require('child_process');
+          const fs = require('fs');
+
+          async function calculateVersion() {
+            try {
+              // Busca a última tag de versão
+              let currentVersion = '0.0.0';
+              try {
+                const latestTag = execSync('git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0"')
+                  .toString()
+                  .trim()
+                  .replace(/^v/, '');
+                currentVersion = semver.valid(latestTag) || '0.0.0';
+              } catch (e) {
+                console.log('Nenhuma tag encontrada, usando 0.0.0');
+              }
+
+              console.log(`Versão atual: ${currentVersion}`);
+
+              // Determina o tipo de bump necessário
+              const result = await conventionalRecommendedBump({
+                preset: 'conventionalcommits',
+                tagPrefix: 'v'
+              });
+
+              let releaseType = result.releaseType;
+              console.log(`Tipo de release recomendado: ${releaseType}`);
+
+              // Calcula a nova versão
+              const newVersion = semver.inc(currentVersion, releaseType);
+              
+              // Detecta breaking changes
+              const commits = execSync('git log origin/${{ github.event.pull_request.base.ref }}..HEAD --format=%B')
+                .toString();
+              const hasBreakingChange = commits.includes('BREAKING CHANGE:') || commits.includes('!:');
+
+              console.log(`Nova versão: ${newVersion}`);
+              console.log(`Breaking changes: ${hasBreakingChange}`);
+              
+              // Output para o GitHub Actions usando $GITHUB_OUTPUT
+              const output = `current=${currentVersion}\nnext=${newVersion}\nrelease_type=${releaseType}\nbreaking=${hasBreakingChange}\n`;
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, output);
+
+              return { currentVersion, newVersion, releaseType, hasBreakingChange };
+            } catch (error) {
+              console.error('Erro ao calcular versão:', error);
+              process.exit(1);
+            }
+          }
+
+          calculateVersion();
+          EOF
+
+          node calculate-version.js
+
+      - name: Generate version summary
+        id: summary
+        run: |
+          cat > generate-summary.js << 'EOF'
+          const { execSync } = require('child_process');
+
+          function generateSummary() {
+            const commits = execSync('git log origin/${{ github.event.pull_request.base.ref }}..HEAD --format=%s')
+              .toString()
+              .trim()
+              .split('\n');
+
+            const types = {
+              feat: [],
+              fix: [],
+              docs: [],
+              style: [],
+              refactor: [],
+              perf: [],
+              test: [],
+              chore: [],
+              ci: [],
+              build: [],
+              revert: []
+            };
+
+            commits.forEach(commit => {
+              const match = commit.match(/^(\w+)(?:\(.+\))?!?:\s*(.+)$/);
+              if (match) {
+                const [, type, message] = match;
+                if (types[type]) {
+                  types[type].push(message);
+                }
+              }
+            });
+
+            let summary = '';
+            
+            if (types.feat.length > 0) {
+              summary += '### ✨ Features\n';
+              types.feat.forEach(msg => summary += `- ${msg}\n`);
+              summary += '\n';
+            }
+            
+            if (types.fix.length > 0) {
+              summary += '### 🐛 Fixes\n';
+              types.fix.forEach(msg => summary += `- ${msg}\n`);
+              summary += '\n';
+            }
+            
+            if (types.perf.length > 0) {
+              summary += '### ⚡ Performance\n';
+              types.perf.forEach(msg => summary += `- ${msg}\n`);
+              summary += '\n';
+            }
+
+            const otherTypes = ['docs', 'style', 'refactor', 'test', 'chore', 'ci', 'build'];
+            const hasOthers = otherTypes.some(type => types[type].length > 0);
+            
+            if (hasOthers) {
+              summary += '### 🔧 Other Changes\n';
+              otherTypes.forEach(type => {
+                types[type].forEach(msg => summary += `- **${type}**: ${msg}\n`);
+              });
+            }
+
+            // Salva em arquivo para usar no próximo step
+            require('fs').writeFileSync('version-summary.txt', summary);
+          }
+
+          generateSummary();
+          EOF
+
+          node generate-summary.js
+
       - name: Comment on PR
         uses: actions/github-script@v7
+        env:
+          CURRENT_VERSION: ${{ steps.version.outputs.current }}
+          NEXT_VERSION: ${{ steps.version.outputs.next }}
+          RELEASE_TYPE: ${{ steps.version.outputs.release_type }}
+          HAS_BREAKING: ${{ steps.version.outputs.breaking }}
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            // Lê o output gerado pelo script anterior
-            const prediction = fs.readFileSync('version_prediction.txt', 'utf8');
+            const summary = fs.readFileSync('version-summary.txt', 'utf8');
             
-            // Busca comentários existentes do bot neste PR
+            const currentVersion = process.env.CURRENT_VERSION;
+            const nextVersion = process.env.NEXT_VERSION;
+            const releaseType = process.env.RELEASE_TYPE;
+            const hasBreaking = process.env.HAS_BREAKING === 'true';
+
+            let impactEmoji = '📦';
+            let impactText = 'Patch';
+            
+            if (releaseType === 'major' || hasBreaking) {
+              impactEmoji = '💥';
+              impactText = 'Major (Breaking Change)';
+            } else if (releaseType === 'minor') {
+              impactEmoji = '✨';
+              impactText = 'Minor (New Feature)';
+            } else if (releaseType === 'patch') {
+              impactEmoji = '🐛';
+              impactText = 'Patch (Bug Fix)';
+            }
+
+            const body = `## ${impactEmoji} Version Impact Analysis
+
+            **Current Version:** \`v${currentVersion}\`  
+            **Predicted Version:** \`v${nextVersion}\`  
+            **Release Type:** **${impactText}**
+
+            ${hasBreaking ? '> ⚠️ **WARNING:** This PR contains BREAKING CHANGES!' : ''}
+
+            ---
+
+            ${summary}
+
+            ---
+
+            *🤖 This comment is automatically updated.*
+            `;
+
+            // Procura comentários existentes do bot
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -59,23 +342,25 @@ jobs:
             });
 
             const botComment = comments.find(comment => 
-              comment.body.includes('')
+              comment.user.type === 'Bot' && 
+              comment.body.includes('Version Impact Analysis')
             );
 
-            const commentBody = `\n### 🚀 Previsão de Release\n\n${prediction}\n\n_Validado com Conventional Commits_`;
-
             if (botComment) {
+              // Atualiza comentário existente
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 comment_id: botComment.id,
-                body: commentBody
+                body: body
               });
             } else {
+              // Cria novo comentário
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                body: commentBody
+                body: body
               });
             }
+
