@@ -23,6 +23,11 @@ jobs:
       - name: Comment Version Impact
         uses: actions/github-script@v7
         if: always() && steps.lint.outcome == 'success'
+        env:
+          CURRENT_VERSION: ${{ steps.version.outputs.current }}
+          NEXT_VERSION: ${{ steps.version.outputs.next }}
+          RELEASE_TYPE: ${{ steps.version.outputs.release_type }}
+          HAS_BREAKING: ${{ steps.version.outputs.breaking }}
         with:
           script: |
             const script = require('./scripts/ci/pr-impact-comment.js');
