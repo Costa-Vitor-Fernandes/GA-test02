@@ -1,4 +1,4 @@
-name: SemVer Workflow
+name: Conventional Commits Validation
 
 on:
   pull_request:
@@ -65,7 +65,39 @@ jobs:
       - name: Validate PR title
         run: |
           PR_TITLE="${{ github.event.pull_request.title }}"
-          echo "$PR_TITLE" | npx commitlint --verbose
+          echo "Validando título do PR: $PR_TITLE"
+          echo ""
+          
+          if ! echo "$PR_TITLE" | npx commitlint --verbose; then
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "❌ Título do PR está fora do padrão!"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "Título atual:"
+            echo "  $PR_TITLE"
+            echo ""
+            echo "⚠️  ATENÇÃO: Precisa ter ESPAÇO após os dois pontos!"
+            echo ""
+            echo "❌ Errado:"
+            echo "  feat:add new feature"
+            echo "  fix:resolve bug"
+            echo "  feat!:breaking change"
+            echo ""
+            echo "✅ Correto:"
+            echo "  feat: add new feature"
+            echo "  fix: resolve bug"
+            echo "  feat!: breaking change"
+            echo ""
+            echo "Formato: <type>[scope]!: <description>"
+            echo "         ^           ^ ^"
+            echo "         |           | |"
+            echo "         |           | └─ ESPAÇO obrigatório"
+            echo "         |           └─── Dois pontos"
+            echo "         └─────────────── Tipo (feat, fix, etc)"
+            echo ""
+            exit 1
+          fi
 
       - name: Validate commit messages
         run: |
@@ -74,10 +106,48 @@ jobs:
           COMMITS=$(git log --format=%H origin/${{ github.event.pull_request.base.ref }}..HEAD)
           
           echo "Validando commits do PR..."
+          echo ""
+          
+          HAS_ERROR=0
           for commit in $COMMITS; do
-            echo "Validando commit: $commit"
-            git log -1 --format=%B $commit | npx commitlint --verbose
+            COMMIT_MSG=$(git log -1 --format=%B $commit)
+            COMMIT_SHORT=$(git log -1 --format=%h $commit)
+            
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "Validando commit $COMMIT_SHORT:"
+            echo "$COMMIT_MSG" | head -1
+            echo ""
+            
+            if ! echo "$COMMIT_MSG" | npx commitlint --verbose; then
+              echo ""
+              echo "❌ Commit $COMMIT_SHORT está INVÁLIDO!"
+              echo ""
+              echo "⚠️  ATENÇÃO: Precisa ter ESPAÇO após os dois pontos!"
+              echo ""
+              echo "❌ Errado: feat:add feature"
+              echo "✅ Correto: feat: add feature"
+              echo ""
+              HAS_ERROR=1
+            else
+              echo "✅ Commit válido!"
+            fi
+            echo ""
           done
+          
+          if [ $HAS_ERROR -eq 1 ]; then
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "❌ Um ou mais commits estão fora do padrão!"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "Corrija os commits com:"
+            echo "  git rebase -i HEAD~N  # onde N é o número de commits"
+            echo "  # Marque com 'r' (reword) os commits a corrigir"
+            echo "  git push --force-with-lease"
+            echo ""
+            exit 1
+          fi
+          
+          echo "✅ Todos os commits estão válidos!"
 
       - name: Calculate next version
         id: version
@@ -226,6 +296,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
+            const summary = fs.readFileSync('version-summary.txt', 'utf8');
             
             const currentVersion = process.env.CURRENT_VERSION;
             const nextVersion = process.env.NEXT_VERSION;
@@ -253,6 +324,10 @@ jobs:
             **Release Type:** **${impactText}**
 
             ${hasBreaking ? '> ⚠️ **WARNING:** This PR contains BREAKING CHANGES!' : ''}
+
+            ---
+
+            ${summary}
 
             ---
 
@@ -288,3 +363,4 @@ jobs:
                 body: body
               });
             }
+
