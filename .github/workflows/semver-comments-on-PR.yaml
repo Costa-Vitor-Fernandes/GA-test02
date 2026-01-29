@@ -2,7 +2,7 @@ name: "SemVer Check & Preview"
 
 on:
   pull_request:
-    types: [opened, edited, synchronized]
+    types: [opened, edited, synchronize]
 
 permissions:
   contents: read
