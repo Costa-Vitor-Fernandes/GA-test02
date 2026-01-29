@@ -12,6 +12,13 @@ jobs:
   validate-and-analyze:
     runs-on: ubuntu-latest
     steps:
+
+      
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       # 1. Valida o título do PR (feat, fix, etc)
       - name: Semantic Pull Request Validation
         uses: amannn/action-semantic-pull-request@v5
