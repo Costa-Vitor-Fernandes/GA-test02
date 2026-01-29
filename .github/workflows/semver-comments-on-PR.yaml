@@ -38,13 +38,13 @@ jobs:
         run: |
           PR_TITLE="${{ github.event.pull_request.title }}"
           echo "Validating PR Title: $PR_TITLE"
-          echo "$PR_TITLE" | npx commitlint --config ./scripts/commitlint.config.js --verbose
+          echo "$PR_TITLE" | npx commitlint --config ./scripts/ci/commitlint.config.js --verbose
 
       - name: Calculate next version
         id: version
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
-        run: node ./scripts/calculate-version.js
+        run: node ./scripts/ci/calculate-version.js
 
       - name: Comment on PR
         uses: actions/github-script@v7
@@ -56,5 +56,5 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const script = require('./scripts/pr-impact-comment.js');
+            const script = require('./scripts/ci/pr-impact-comment.js');
             await script({ github, context });
