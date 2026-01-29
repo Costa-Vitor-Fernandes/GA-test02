@@ -1,0 +1,48 @@
+name: Conventional Commits Validation
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+permissions:
+  pull-requests: write
+  statuses: write # Necessário para marcar o check como sucesso/falha
+
+jobs:
+  validate-and-analyze:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Valida o título do PR (feat, fix, etc)
+      - name: Semantic Pull Request Validation
+        uses: amannn/action-semantic-pull-request@v5
+        id: lint
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Define quais tipos são aceitos (opcional, ele já vem com os padrões)
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            perf
+            test
+            chore
+            ci
+            build
+            revert
+
+      # 2. Comenta no PR com a versão detectada
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        env:
+          CURRENT_VERSION: ${{ steps.version.outputs.current }}
+          NEXT_VERSION: ${{ steps.version.outputs.next }}
+          RELEASE_TYPE: ${{ steps.version.outputs.release_type }}
+          HAS_BREAKING: ${{ steps.version.outputs.breaking }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const script = require('./scripts/ci/pr-impact-comment.js');
+            await script({ github, context });
