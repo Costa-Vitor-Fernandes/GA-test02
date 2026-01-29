@@ -1,8 +1,8 @@
-name: Conventional Commits Validation
+name: Conventional Commits PR Validation
 
 on:
   pull_request:
-    types: [opened, edited, synchronize]
+    types: [opened, reopened, edited, synchronize]
 
 permissions:
   pull-requests: write
@@ -12,7 +12,6 @@ jobs:
   validate-and-analyze:
     runs-on: ubuntu-latest
     steps:
-
       
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -27,7 +26,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # 2. Comenta no PR com o impacto da versão detectado
-      - name: Comment Version Impact
+      - name: Version Impact Bot
         uses: actions/github-script@v7
         if: always() && steps.lint.outcome == 'success'
         env:
