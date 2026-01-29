@@ -1,4 +1,4 @@
-name: Conventional Commits Validation
+name: SemVer Workflow
 
 on:
   pull_request:
@@ -226,7 +226,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const summary = fs.readFileSync('version-summary.txt', 'utf8');
             
             const currentVersion = process.env.CURRENT_VERSION;
             const nextVersion = process.env.NEXT_VERSION;
@@ -257,11 +256,7 @@ jobs:
 
             ---
 
-            ${summary}
-
-            ---
-
-            *🤖 This comment is automatically updated when new commits are pushed.*
+            *🤖 This comment is automatically updated.*
             `;
 
             // Procura comentários existentes do bot
