@@ -2,7 +2,7 @@ name: 2Conventional Commits Validation
 
 on:
   pull_request:
-    types: [opened, edited, synchronize]
+    types: [opened, reopened, edited, synchronize]
 
 permissions:
   pull-requests: write
@@ -21,15 +21,22 @@ jobs:
         id: lint
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # 2 Calcula versão
+      - name: Calculate next version
+        id: version
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: node ./scripts/ci/calculate-version.js
 
-      # 2. Comenta no PR com a versão detectada
+      # 3. Comenta no PR com a versão detectada
       - name: Comment on PR
         uses: actions/github-script@v7
+        if: always() && steps.lint.outcome == 'success'
         env:
-          CURRENT_VERSION: ${{ steps.version.outputs.current }}
-          NEXT_VERSION: ${{ steps.version.outputs.next }}
-          RELEASE_TYPE: ${{ steps.version.outputs.release_type }}
-          HAS_BREAKING: ${{ steps.version.outputs.breaking }}
+          CURRENT_VERSION: ${{ steps.lint.outputs.current }}
+          NEXT_VERSION: ${{ steps.lint.outputs.next }}
+          RELEASE_TYPE: ${{ steps.lint.outputs.release_type }}
+          HAS_BREAKING: ${{ steps.lint.outputs.breaking }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
