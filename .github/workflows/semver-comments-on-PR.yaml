@@ -86,6 +86,7 @@ jobs:
           const conventionalRecommendedBump = require('conventional-recommended-bump');
           const semver = require('semver');
           const { execSync } = require('child_process');
+          const fs = require('fs');
 
           async function calculateVersion() {
             try {
@@ -123,11 +124,9 @@ jobs:
               console.log(`Nova versão: ${newVersion}`);
               console.log(`Breaking changes: ${hasBreakingChange}`);
               
-              // Output para o GitHub Actions
-              console.log(`::set-output name=current::${currentVersion}`);
-              console.log(`::set-output name=next::${newVersion}`);
-              console.log(`::set-output name=release_type::${releaseType}`);
-              console.log(`::set-output name=breaking::${hasBreakingChange}`);
+              // Output para o GitHub Actions usando $GITHUB_OUTPUT
+              const output = `current=${currentVersion}\nnext=${newVersion}\nrelease_type=${releaseType}\nbreaking=${hasBreakingChange}\n`;
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, output);
 
               return { currentVersion, newVersion, releaseType, hasBreakingChange };
             } catch (error) {
@@ -259,31 +258,6 @@ jobs:
             ---
 
             ${summary}
-
-            ---
-
-            <details>
-            <summary>📖 Conventional Commits Guide</summary>
-
-            This project follows [Conventional Commits](https://www.conventionalcommits.org/).
-
-            **Format:** \`<type>[optional scope]: <description>\`
-
-            **Types:**
-            - \`feat:\` ✨ New feature (minor version bump)
-            - \`fix:\` 🐛 Bug fix (patch version bump)
-            - \`docs:\` 📝 Documentation only
-            - \`style:\` 💄 Code style/formatting
-            - \`refactor:\` ♻️ Code refactoring
-            - \`perf:\` ⚡ Performance improvement
-            - \`test:\` ✅ Adding tests
-            - \`chore:\` 🔧 Maintenance tasks
-            - \`ci:\` 👷 CI/CD changes
-
-            **Breaking Changes:** Add \`!\` after type or \`BREAKING CHANGE:\` in footer
-            Example: \`feat!: remove deprecated API\`
-
-            </details>
 
             ---
 
