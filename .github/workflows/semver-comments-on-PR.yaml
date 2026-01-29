@@ -1,81 +1,105 @@
-name: "SemVer prediction on PR comments"
+name: "SemVer Check & Preview"
 
 on:
   pull_request:
     types: [opened, edited, synchronize]
 
-jobs:
-  validate-and-predict:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write # Necessário para comentar no PR
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
 
+jobs:
+  validate-and-preview:
+    name: Validate Commits & Predict Version
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Importante para ler as tags e o histórico de commits
+          fetch-depth: 0 # Obrigatório para analisar o histórico de commits
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '20'
 
-      # Passo 1: Validação (Falha se estiver fora do padrão)
-      # Usamos o 'commitlint' para validar o Título do PR.
-      - name: Validate PR Title
-        env:
-          TITLE: ${{ github.event.pull_request.title }}
+      # Instalamos as dependências necessárias no ambiente do runner
+      - name: Install Analysis Tools
         run: |
-          npm install @commitlint/config-conventional @commitlint/cli
-          echo "module.exports = { extends: ['@commitlint/config-conventional'] };" > commitlint.config.js
-          echo "$TITLE" | npx commitlint
-        
-      # Passo 2: Previsão da Próxima Versão
-      # Instala dependências leves para calcular o bump de versão
-      - name: Predict Next Version
-        id: predict
-        run: |
-          npm install conventional-recommended-bump semver
-          node .github/scripts/predict-version.js
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          npm install --no-save @commitlint/config-conventional @commitlint/cli conventional-recommended-bump semver
 
-      # Passo 3: Comentário no PR (Cria ou Atualiza)
-      - name: Comment on PR
+      # CORREÇÃO: Usamos o pipe (|) para evitar erro de sintaxe com aspas/chaves
+      - name: Create Commitlint Config
+        run: |
+          echo "module.exports = {extends: ['@commitlint/config-conventional']}" > commitlint.config.js
+
+      # Passo 1: Validação (Linta os commits do PR)
+      - name: Validate Commits (Commitlint)
+        run: |
+          npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
+
+      # Passo 2: Previsão da Versão (Script Inline)
+      # Aqui usamos actions/github-script com o código embutido para evitar o erro "Cannot find module"
+      - name: Calculate Next Version
+        id: prediction
         uses: actions/github-script@v7
         with:
           script: |
-            const fs = require('fs');
-            // Lê o output gerado pelo script anterior
-            const prediction = fs.readFileSync('version_prediction.txt', 'utf8');
-            
-            // Busca comentários existentes do bot neste PR
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
+            // Importa módulos instalados no passo anterior
+            // Usamos process.cwd() para garantir que o require ache a pasta node_modules local
+            const startPath = process.cwd();
+            const semver = require(startPath + '/node_modules/semver');
+            const recommendedBump = require(startPath + '/node_modules/conventional-recommended-bump');
+            const { promisify } = require('util');
+            const exec = promisify(require('child_process').exec);
+            const bump = promisify(recommendedBump);
 
-            const botComment = comments.find(comment => 
-              comment.body.includes('')
-            );
-
-            const commentBody = `\n### 🚀 Previsão de Release\n\n${prediction}\n\n_Validado com Conventional Commits_`;
-
-            if (botComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id,
-                body: commentBody
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: commentBody
-              });
+            // 1. Descobre a versão atual (tag)
+            let currentVersion = '0.0.0';
+            try {
+              // Pega a última tag disponível
+              const { stdout } = await exec('git describe --tags --abbrev=0');
+              currentVersion = stdout.trim();
+              if (currentVersion.startsWith('v')) currentVersion = currentVersion.slice(1);
+            } catch (error) {
+              console.log('Nenhuma tag encontrada, assumindo v0.0.0 como base.');
             }
+
+            // 2. Analisa os commits para sugerir o bump (Major, Minor ou Patch)
+            let releaseType = 'patch';
+            try {
+              const recommendation = await bump({ preset: 'angular' });
+              releaseType = recommendation.releaseType;
+            } catch (err) {
+              console.log('Erro ao calcular bump, assumindo patch como fallback.');
+            }
+
+            // 3. Calcula a próxima versão
+            const nextVersion = semver.inc(currentVersion, releaseType);
+            
+            console.log(`Versão Atual: ${currentVersion}`);
+            console.log(`Tipo de Bump: ${releaseType}`);
+            console.log(`Próxima Versão: ${nextVersion}`);
+
+            // Exporta output para ser usado no passo de comentário
+            core.setOutput('current_version', currentVersion);
+            core.setOutput('next_version', nextVersion);
+            core.setOutput('bump_type', releaseType);
+
+      # Passo 3: Comentário no PR
+      - name: Comment Prediction
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ## 🤖 SemVer Preview
+            
+            Validamos seus commits e calculamos o impacto desta mudança:
+            
+            | Atual | Impacto | **Prevista** |
+            | :---: | :---: | :---: |
+            | `v${{ steps.prediction.outputs.current_version }}` | **${{ steps.prediction.outputs.bump_type }}** | `v${{ steps.prediction.outputs.next_version }}` |
+            
+            > **Nota:** Se o impacto estiver errado, verifique se usou `fix:`, `feat:` ou `BREAKING CHANGE` corretamente nos commits.
+          edit-mode: replace
