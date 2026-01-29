@@ -1,0 +1,81 @@
+name: "SemVer prediction on PR comments"
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+jobs:
+  validate-and-predict:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # Necessário para comentar no PR
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Importante para ler as tags e o histórico de commits
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # Passo 1: Validação (Falha se estiver fora do padrão)
+      # Usamos o 'commitlint' para validar o Título do PR.
+      - name: Validate PR Title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          npm install @commitlint/config-conventional @commitlint/cli
+          echo "module.exports = { extends: ['@commitlint/config-conventional'] };" > commitlint.config.js
+          echo "$TITLE" | npx commitlint
+        
+      # Passo 2: Previsão da Próxima Versão
+      # Instala dependências leves para calcular o bump de versão
+      - name: Predict Next Version
+        id: predict
+        run: |
+          npm install conventional-recommended-bump semver
+          node .github/scripts/predict-version.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Passo 3: Comentário no PR (Cria ou Atualiza)
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            // Lê o output gerado pelo script anterior
+            const prediction = fs.readFileSync('version_prediction.txt', 'utf8');
+            
+            // Busca comentários existentes do bot neste PR
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment => 
+              comment.body.includes('')
+            );
+
+            const commentBody = `\n### 🚀 Previsão de Release\n\n${prediction}\n\n_Validado com Conventional Commits_`;
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: commentBody
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: commentBody
+              });
+            }
