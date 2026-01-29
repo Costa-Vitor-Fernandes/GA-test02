@@ -1,8 +1,8 @@
-name: 2Conventional Commits Validation
+name: Conventional Commits Validation
 
 on:
   pull_request:
-    types: [opened, reopened, edited, synchronize]
+    types: [opened, edited, synchronize]
 
 permissions:
   pull-requests: write
@@ -12,33 +12,20 @@ jobs:
   validate-and-analyze:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        
       # 1. Valida o título do PR (feat, fix, etc)
       - name: Semantic Pull Request Validation
         uses: amannn/action-semantic-pull-request@v5
         id: lint
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # 2 Calcula versão
-      - name: Calculate next version
-        id: version
-        env:
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-        run: node ./scripts/ci/calculate-version.js
 
-      # 3. Comenta no PR com a versão detectada
-      - name: Comment on PR
+      # 2. Comenta no PR com o impacto da versão detectado
+      - name: Comment Version Impact
         uses: actions/github-script@v7
         if: always() && steps.lint.outcome == 'success'
-        env:
-          CURRENT_VERSION: ${{ steps.lint.outputs.current }}
-          NEXT_VERSION: ${{ steps.lint.outputs.next }}
-          RELEASE_TYPE: ${{ steps.lint.outputs.release_type }}
-          HAS_BREAKING: ${{ steps.lint.outputs.breaking }}
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const script = require('./scripts/ci/pr-impact-comment.js');
             await script({ github, context });
+
+            

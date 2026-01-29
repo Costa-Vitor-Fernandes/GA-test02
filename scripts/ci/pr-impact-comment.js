@@ -1,45 +1,34 @@
 module.exports = async ({ github, context }) => {
-  const currentVersion = process.env.CURRENT_VERSION;
-  const nextVersion = process.env.NEXT_VERSION;
-  const releaseType = process.env.RELEASE_TYPE;
-  const hasBreaking = process.env.HAS_BREAKING === 'true';
 
-  const mapping = {
-    major: { emoji: '💥', text: 'Major (Breaking Change)' },
-    minor: { emoji: '✨', text: 'Minor (New Feature)' },
-    patch: { emoji: '🐛', text: 'Patch (Bug Fix)' }
-  };
+            const type = "${{ steps.lint.outputs.type }}"; // ex: feat
+            const isBreaking = "${{ steps.lint.outputs.is_breaking }}" === "true";
+            
+            let impact = "Patch (Bug Fix) 🐛";
+            if (isBreaking) impact = "Major (Breaking Change) 💥";
+            else if (type === 'feat') impact = "Minor (New Feature) ✨";
 
-  const impact = (hasBreaking || releaseType === 'major') ? mapping.major : mapping[releaseType] || mapping.patch;
+            const body = `### 📦 Version Impact Analysis\n\n- **Type:** \`${type}\`\n- **Impact:** **${impact}**\n\n*🤖 Auto-calculated based on PR title.*`;
+            
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
 
-  const body = `## ${impact.emoji} Version Impact Analysis
+            const botComment = comments.find(c => c.body.includes('Version Impact Analysis'));
 
-**Current Version:** \`v${currentVersion}\`  
-**Predicted Version:** \`v${nextVersion}\`  
-**Release Type:** **${impact.text}**
-
-${hasBreaking ? '> ⚠️ **WARNING:** This PR contains BREAKING CHANGES!' : ''}
-
----
-*🤖 This comment is automatically updated by the CI pipeline.*`;
-
-  const { data: comments } = await github.rest.issues.listComments({
-    owner: context.repo.owner,
-    repo: context.repo.repo,
-    issue_number: context.issue.number,
-  });
-
-  const botComment = comments.find(c => c.user.type === 'Bot' && c.body.includes('Version Impact Analysis'));
-
-  const commentPayload = {
-    owner: context.repo.owner,
-    repo: context.repo.repo,
-    body: body
-  };
-
-  if (botComment) {
-    await github.rest.issues.updateComment({ ...commentPayload, comment_id: botComment.id });
-  } else {
-    await github.rest.issues.createComment({ ...commentPayload, issue_number: context.issue.number });
-  }
-};
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body
+              });
+            }};
